@@ -1,121 +1,225 @@
 module amm_cdc #(
+  parameter CDC_W         = 2,
   parameter A_W           = 32,
   parameter D_W           = 64,
+  //parameter BE_EN         = 1,
   parameter INPUT_REG_EN  = 1,
   parameter OUTPUT_REG_EN = 1,
-  parameter PIPE_READ     = 1,
   parameter BURST_EN      = 0,
   parameter BURST_W       = 0
 )(
-  amm_if amm_if_m,
-  amm_if amm_if_s
+  input   rst_m_i,
+  input   rst_s_i,
+
+  input   clk_m_i,
+  input   clk_s_i,
+
+  amm_if  amm_if_m,
+  amm_if  amm_if_s
+);
+
+logic waitrequest;
+
+//******************************************
+// Module instances
+//******************************************
+
+logic master_md_req_valid, master_sd_req_valid;
+logic master_md_ack_valid, master_sd_ack_valid;
+
+logic slave_md_req_valid, slave_sd_req_valid;
+logic slave_md_ack_valid, slave_sd_ack_valid;
+
+cdc_handshake #(
+  .CDC_REG_AMOUNT( CDC_W + INPUT_REG_EN + OUTPUT_REG_EN )
+) master_cdc_handshake (
+  .rst_m_i( rst_m_i             ),
+  .rst_s_i( rst_s_i             ),
+
+  .clk_m_i( clk_m_i             ),
+  .clk_s_i( clk_s_i             ),
+
+  .m_req_i( master_md_req_valid ),
+  .m_ack_o( master_md_ack_valid ),
+
+  .s_ack_i( master_sd_ack_valid ),
+  .s_req_o( master_sd_req_valid )
+);
+
+cdc_handshake #(
+  .CDC_REG_AMOUNT( CDC_W + INPUT_REG_EN + OUTPUT_REG_EN )
+) slave_cdc_handshake (
+  .rst_m_i( rst_s_i             ),
+  .rst_s_i( rst_m_i             ),
+
+  .clk_m_i( clk_s_i             ),
+  .clk_s_i( clk_m_i             ),
+
+  .m_req_i( slave_md_req_valid  ),
+  .m_ack_o( slave_md_ack_valid  ),
+
+  .s_ack_i( slave_sd_req_valid  ),
+  .s_req_o( slave_sd_ack_valid  )
 );
 
 //******************************************
-// Request assert logic
+// Latch input signals
 //******************************************
 
-always_ff @( posedge amm_if_m.clk )
-  if( m_req_stb )
+logic             m_write;
+logic             m_read;
+logic [A_W-1:0]   m_addr;
+logic [D_W/8-1:0] m_be;
+logic [D_W-1:0]   m_data
+
+logic             s_readdatavalid;
+logic [D_W-1:0]   s_readdata;
+
+generate
+  if( INPUT_REG_EN )
     begin
-      m_write <= amm_if_m.write;
-      m_read  <= amm_if_m.read;
-      m_addr  <= amm_if_m.address;
-      if( amm_if_m.write )
-        m_data <= amm_if_m.writedata;
-    end
 
-always_ff @( posedge amm_if_m.clk, posedge amm_if_m.rst )
-  if( amm_if_m.rst )
-    m_in_progress <= 1'b0;
-  else
-    if( m_req_set )
-      m_in_progress <= 1'b1;
-    else
-      if( m_busy_clear )
-        m_in_progress <= 1'b0;
+      always_ff @( posedge clk_m_i )
+        if( master_md_req_valid )
+          begin
+            m_write <= amm_if_m.write;
+            m_read  <= amm_if_m.read;
+            m_addr  <= amm_if_m.address;
+            m_be    <= amm_if_m.byteenable;
+            if( amm_if_m.write )
+              m_data <= amm_if_m.writedata;
+          end
 
-assign m_req_en   = ( amm_if_m.write || amm_if_m.read );
-
-assign m_req_set  = m_req_en && ~m_in_progress;
-
-assign amm_if_m.waitrequest = m_in_progress;
-
-//********************************************
-// Handshake logic
-//********************************************
-
-always_ff @( posedge amm_if_m.clk, posedge amm_if_m.rst )
-  if( amm_if_m.rst )
-    m_req_flag <= 1'b0;
-  else
-    if( m_req_set )
-      m_req_flag <= 1'b1;
-    else
-      if( m_req_clear )
-        m_req_flag <= 1'b0;
-
-always_ff @( posedge amm_if_s.clk )
-  s_req_sync_reg <= { s_req_sync_reg[1:0], m_req_flag };
-
-always_ff @( posedge amm_if_m.clk )
-  m_ack_sync_reg <= { m_ack_sync_reg[1:0], s_ack_flag };
-
-assign m_req_clear  =  m_ack_sync_reg[1] && ~m_ack_sync_reg[2];
-assign m_busy_clear =  ~m_ack_sync_reg[1] &&  m_ack_sync_reg[2];
-
-assign s_ack_set    =  s_req_sync_reg[1] && ~amm_if_s.waitrequest && ~s_ack_flag;
-assign s_ack_clear  = ~s_req_sync_reg[1] &&  s_req_sync_reg[2];
-
-always_ff @( posedge amm_if_s.clk, posedge amm_if_s.rst )
-  if( amm_if_s.rst )
-    s_ack_flag <= 1'b0;
-  else
-    if( s_ack_set )
-      s_ack_flag <= 1'b1;
-    else
-      if( s_ack_clear )
-        s_ack_flag <= 1'b0;
-
-//******************************************
-// Request answer logic
-//******************************************
-
-always_ff @( posedge amm_if_s.clk )
-  if( s_ack_set )
-    begin
-      write_s <= write_m;
-      read_s  <= read_m;
-      addr_s  <= addr_m;
-      if( write_m )
-        data_s <= data_m;
     end
   else
-    if( ~amm_if_s.waitrequest )
-      begin
-        write_s <= 1'b0;
-        read_s  <= 1'b0;
-      end
+    begin
 
-//****************************************
-// Read transaction CDC
-//****************************************
+      always_comb
+        begin
+          m_write = amm_if_m.write;
+          m_read  = amm_if_m.read;
+          m_addr  = amm_if_m.address;
+          m_be    = amm_if_m.byteenable;
+          m_data  = amm_if_m.writedata;
+        end
 
-assign m_ack_set    =  m_ack_sync_reg[1] && ~m_ack_sync_reg[2];
-assign m_ack_clear  = ~m_ack_sync_reg[1] &&  m_ack_sync_reg[2];
+    end
+endgenerate
 
-assign m_ack_set    =  m_ack_sync_reg[1] && ~m_ack_sync_reg[2];
-assign m_ack_clear  = ~m_ack_sync_reg[1] &&  m_ack_sync_reg[2];
+always_ff @( posedge clk_s_i )
+  if( slave_md_req_valid )
+    begin
+      s_readdatavalid <= amm_if_s.readdatavalid;
+      s_readdata      <= amm_if_s.readdata;
+    end
 
-always_ff @( posedge amm_if_s.clk, posedge amm_if_s.rst )
-  if( amm_if_s.rst )
-    busy_s <= 1'b0;
+//******************************************
+// Latch output signals
+//******************************************
+
+logic             s_write;
+logic             s_read;
+logic [A_W-1:0]   s_addr;
+logic [D_W/8-1:0] s_be;
+logic [D_W-1:0]   s_data
+
+logic             m_readdatavalid;
+logic [D_W-1:0]   m_readdata;
+
+generate
+  if( OUTPUT_REG_EN )
+    begin
+
+      always_ff @( posedge clk_s_i )
+        if( master_sd_req_valid )
+          begin
+            s_write <= m_write;
+            s_read  <= m_read;
+            s_addr  <= m_addr;
+            s_be    <= m_be;
+            if( m_write )
+              s_data <= m_data;
+          end
+        else
+          if( ~amm_if_s.waitrequest )
+            begin
+              s_write <= 1'b0;
+              s_read  <= 1'b0;
+            end
+
+      always_ff @( posedge clk_m_i )
+        if( slave_md_req_valid )
+          m_readdata <= s_readdata;
+
+    end
   else
-    if( s_req )
-      busy_s <= 1'b1;
+    begin
+
+      always_comb
+        if( master_sd_req_valid )
+          begin
+            s_write = m_write;
+            s_read  = m_read;
+            s_addr  = m_addr;
+            s_be    = m_be;
+            s_data  = m_data;
+          end
+        else
+          begin
+            write_s = 1'b0;
+            read_s  = 1'b0;
+          end
+
+      always_comb
+        m_readdata      = s_readdata;
+
+    end
+endgenerate
+
+always_ff @( posedge clk_m_i, posedge rst_m_i )
+  if( rst_m_i )
+    m_readdatavalid <= 1'b0;
+  else
+    if( slave_md_req_valid )
+      m_readdatavalid <= 1'b1;
     else
-      if( ~amm_if_s.waitrequest )
-        busy_s <= 1'b0;
+      m_readdatavalid <= 1'b0;
+
+assign master_sd_ack_valid = ( s_write || s_read ) && ~!amm_if_s.waitrequest;
+
+//**************************************************
+// Master clock domain
+//**************************************************
+
+assign master_md_req_valid = ( amm_if_m.write || amm_if_m.read );
+
+always_ff @( posedge clk_m_i, posedge rst_m_i )
+  if( rst_m_i )
+    waitrequest <= 1'b1;
+  else
+    if( master_md_ack_valid )
+      waitrequest <= 1'b0;
+    else
+      waitrequest <= 1'b1;
+
+//****************************************
+// Master interface assigns
+//****************************************
+
+assign amm_if_m.readdatavalid = m_readdatavalid;
+assign amm_if_m.readdata      = m_readdata;
+
+assign amm_if_m.waitrequest   = waitrequest;
+
+//****************************************
+// Slave interface assigns
+//****************************************
+
+assign amm_if_s.write     = s_write;
+assign amm_if_s.read      = s_read;
+assign amm_if_s.be        = s_be;
+assign amm_if_s.address   = s_address;
+assign amm_if_s.writedata = s_writedata;
 
 endmodule : amm_cdc
 
