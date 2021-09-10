@@ -14,8 +14,8 @@ module amm_cdc #(
   input   clk_m_i,
   input   clk_s_i,
 
-  amm_if  amm_if_m,
-  amm_if  amm_if_s
+  avalon_mm_if  amm_if_m,
+  avalon_mm_if  amm_if_s
 );
 
 logic waitrequest;
@@ -70,7 +70,7 @@ logic             m_write;
 logic             m_read;
 logic [A_W-1:0]   m_addr;
 logic [D_W/8-1:0] m_be;
-logic [D_W-1:0]   m_data
+logic [D_W-1:0]   m_data;
 
 logic             s_readdatavalid;
 logic [D_W-1:0]   s_readdata;
@@ -121,7 +121,7 @@ logic             s_write;
 logic             s_read;
 logic [A_W-1:0]   s_addr;
 logic [D_W/8-1:0] s_be;
-logic [D_W-1:0]   s_data
+logic [D_W-1:0]   s_data;
 
 logic             m_readdatavalid;
 logic [D_W-1:0]   m_readdata;
@@ -166,8 +166,8 @@ generate
           end
         else
           begin
-            write_s = 1'b0;
-            read_s  = 1'b0;
+            s_write = 1'b0;
+            s_read  = 1'b0;
           end
 
       always_comb
@@ -185,7 +185,7 @@ always_ff @( posedge clk_m_i, posedge rst_m_i )
     else
       m_readdatavalid <= 1'b0;
 
-assign master_sd_ack_valid = ( s_write || s_read ) && ~!amm_if_s.waitrequest;
+assign master_sd_ack_valid = ( s_write || s_read ) && ~amm_if_s.waitrequest;
 
 //**************************************************
 // Master clock domain
@@ -217,9 +217,9 @@ assign amm_if_m.waitrequest   = waitrequest;
 
 assign amm_if_s.write     = s_write;
 assign amm_if_s.read      = s_read;
-assign amm_if_s.be        = s_be;
-assign amm_if_s.address   = s_address;
-assign amm_if_s.writedata = s_writedata;
+assign amm_if_s.byteenable        = s_be;
+assign amm_if_s.address   = s_addr;
+assign amm_if_s.writedata = s_data;
 
 endmodule : amm_cdc
 

@@ -65,7 +65,7 @@ always_ff @( posedge clk_s_i, posedge rst_s_i )
         s_req <= 1'b0;
 
 assign s_req_set   = s_req_sync_reg[CDC_REG_AMOUNT-1] && ~s_req_sync_reg[CDC_REG_AMOUNT];
-assign s_req_clear = s_ack_i && s_req;
+assign s_req_clear = s_ack_i && s_req_o;
 
 //********************************************
 // Handshake logic
