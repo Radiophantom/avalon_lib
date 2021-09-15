@@ -1,12 +1,9 @@
 module amm_cdc #(
-  parameter CDC_W         = 2,
-  parameter A_W           = 32,
-  parameter D_W           = 64,
-  //parameter BE_EN         = 1,
-  parameter INPUT_REG_EN  = 1,
-  parameter OUTPUT_REG_EN = 1,
-  parameter BURST_EN      = 0,
-  parameter BURST_W       = 0
+  parameter CDC_W     = 2,
+  parameter ADDR_W    = 32,
+  parameter DATA_W    = 64,
+  parameter BURST_EN  = 0,
+  parameter BURST_W   = 0
 )(
   input   rst_m_i,
   input   rst_s_i,
@@ -18,11 +15,11 @@ module amm_cdc #(
   avalon_mm_if  amm_if_s
 );
 
-logic waitrequest;
+//******************************************
+// Variables declaration
+//******************************************
 
-//******************************************
-// Module instances
-//******************************************
+logic waitrequest;
 
 logic master_md_req_valid, master_sd_req_valid;
 logic master_md_ack_valid, master_sd_ack_valid;
@@ -30,9 +27,14 @@ logic master_md_ack_valid, master_sd_ack_valid;
 logic slave_md_req_valid, slave_sd_req_valid;
 logic slave_md_ack_valid, slave_sd_ack_valid;
 
+//******************************************
+// Module instances
+//******************************************
+
+// instance CDC handshake for master write/read requests
 cdc_handshake #(
-  .CDC_REG_AMOUNT( CDC_W + INPUT_REG_EN + OUTPUT_REG_EN )
-) master_cdc_handshake (
+  .CDC_REG_AMOUNT( CDC_W )
+) master_request_cdc_handshake (
   .rst_m_i( rst_m_i             ),
   .rst_s_i( rst_s_i             ),
 
@@ -46,180 +48,70 @@ cdc_handshake #(
   .s_req_o( master_sd_req_valid )
 );
 
+assign master_md_req_valid = ( amm_if_m.write || amm_if_m.read );
+assign master_sd_ack_valid = ~amm_if_s.waitrequest;
+
+// instances CDC handshake for slave read responses
 cdc_handshake #(
-  .CDC_REG_AMOUNT( CDC_W + INPUT_REG_EN + OUTPUT_REG_EN )
-) slave_cdc_handshake (
-  .rst_m_i( rst_s_i             ),
-  .rst_s_i( rst_m_i             ),
+  .CDC_REG_AMOUNT( CDC_W ) // +1? to balance delay because of 'readdata' latching
+) slave_response_cdc_handshake (
+  .rst_m_i( rst_m_i             ),
+  .rst_s_i( rst_s_i             ),
 
-  .clk_m_i( clk_s_i             ),
-  .clk_s_i( clk_m_i             ),
+  .clk_m_i( clk_m_i             ),
+  .clk_s_i( clk_s_i             ),
 
-  .m_req_i( slave_md_req_valid  ),
-  .m_ack_o( slave_md_ack_valid  ),
+  .m_req_i( slave_sd_req_valid  ),
+  .m_ack_o( slave_sd_ack_valid  ),
 
-  .s_ack_i( slave_sd_req_valid  ),
-  .s_req_o( slave_sd_ack_valid  )
+  .s_ack_i( slave_md_ack_valid  ),
+  .s_req_o( slave_md_req_valid  )
 );
 
-//******************************************
-// Latch input signals
-//******************************************
-
-logic             m_write;
-logic             m_read;
-logic [A_W-1:0]   m_addr;
-logic [D_W/8-1:0] m_be;
-logic [D_W-1:0]   m_data;
-
-logic             s_readdatavalid;
-logic [D_W-1:0]   s_readdata;
-
-generate
-  if( INPUT_REG_EN )
-    begin
-
-      always_ff @( posedge clk_m_i )
-        if( master_md_req_valid )
-          begin
-            m_write <= amm_if_m.write;
-            m_read  <= amm_if_m.read;
-            m_addr  <= amm_if_m.address;
-            m_be    <= amm_if_m.byteenable;
-            if( amm_if_m.write )
-              m_data <= amm_if_m.writedata;
-          end
-
-    end
-  else
-    begin
-
-      always_comb
-        begin
-          m_write = amm_if_m.write;
-          m_read  = amm_if_m.read;
-          m_addr  = amm_if_m.address;
-          m_be    = amm_if_m.byteenable;
-          m_data  = amm_if_m.writedata;
-        end
-
-    end
-endgenerate
-
-always_ff @( posedge clk_s_i )
-  if( slave_md_req_valid )
-    begin
-      s_readdatavalid <= amm_if_s.readdatavalid;
-      s_readdata      <= amm_if_s.readdata;
-    end
+assign slave_sd_req_valid = amm_if_s.readdatavalid;
+assign slave_md_ack_valid = 1'b1;
 
 //******************************************
 // Latch output signals
 //******************************************
 
-logic             s_write;
-logic             s_read;
-logic [A_W-1:0]   s_addr;
-logic [D_W/8-1:0] s_be;
-logic [D_W-1:0]   s_data;
-
-logic             m_readdatavalid;
-logic [D_W-1:0]   m_readdata;
-
-generate
-  if( OUTPUT_REG_EN )
+always_ff @( posedge clk_s_i )
+  if( master_sd_req_valid )
     begin
-
-      always_ff @( posedge clk_s_i )
-        if( master_sd_req_valid )
-          begin
-            s_write <= m_write;
-            s_read  <= m_read;
-            s_addr  <= m_addr;
-            s_be    <= m_be;
-            if( m_write )
-              s_data <= m_data;
-          end
-        else
-          if( ~amm_if_s.waitrequest )
-            begin
-              s_write <= 1'b0;
-              s_read  <= 1'b0;
-            end
-
-      always_ff @( posedge clk_m_i )
-        if( slave_md_req_valid )
-          m_readdata <= s_readdata;
-
+      amm_if_s.write      <= amm_if_m.write;
+      amm_if_s.read       <= amm_if_m.read;
+      amm_if_s.address    <= amm_if_m.address;
+      amm_if_s.byteenable <= amm_if_m.byteenable;
+      if( amm_if_m.write )
+        amm_if_s.writedata  <= amm_if_m.writedata;
     end
   else
-    begin
+    if( ~amm_if_s.waitrequest )
+      begin
+        s_write <= 1'b0;
+        s_read  <= 1'b0;
+      end
 
-      always_comb
-        if( master_sd_req_valid )
-          begin
-            s_write = m_write;
-            s_read  = m_read;
-            s_addr  = m_addr;
-            s_be    = m_be;
-            s_data  = m_data;
-          end
-        else
-          begin
-            s_write = 1'b0;
-            s_read  = 1'b0;
-          end
+always_ff @( posedge clk_s_i )
+  if( amm_if_s.readdatavalid )
+    s_readdata <= amm_if_s.readdata;
 
-      always_comb
-        m_readdata      = s_readdata;
-
-    end
-endgenerate
-
-always_ff @( posedge clk_m_i, posedge rst_m_i )
-  if( rst_m_i )
-    m_readdatavalid <= 1'b0;
-  else
+always_ff @( posedge clk_m_i )
+  begin
+    amm_if_m.readdatavalid <= slave_md_req_valid;
     if( slave_md_req_valid )
-      m_readdatavalid <= 1'b1;
-    else
-      m_readdatavalid <= 1'b0;
-
-assign master_sd_ack_valid = ( s_write || s_read ) && ~amm_if_s.waitrequest;
-
-//**************************************************
-// Master clock domain
-//**************************************************
-
-assign master_md_req_valid = ( amm_if_m.write || amm_if_m.read );
-
-always_ff @( posedge clk_m_i, posedge rst_m_i )
-  if( rst_m_i )
-    waitrequest <= 1'b1;
-  else
-    if( master_md_ack_valid )
-      waitrequest <= 1'b0;
-    else
-      waitrequest <= 1'b1;
+      amm_if_m.readdata <= s_readdata;
+  end
 
 //****************************************
 // Master interface assigns
 //****************************************
 
-assign amm_if_m.readdatavalid = m_readdatavalid;
-assign amm_if_m.readdata      = m_readdata;
-
-assign amm_if_m.waitrequest   = waitrequest;
+assign amm_if_m.waitrequest = ~master_md_ack_valid;
 
 //****************************************
 // Slave interface assigns
 //****************************************
-
-assign amm_if_s.write     = s_write;
-assign amm_if_s.read      = s_read;
-assign amm_if_s.byteenable        = s_be;
-assign amm_if_s.address   = s_addr;
-assign amm_if_s.writedata = s_data;
 
 endmodule : amm_cdc
 

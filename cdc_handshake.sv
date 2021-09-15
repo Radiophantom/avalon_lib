@@ -17,9 +17,9 @@ module cdc_handshake #(
 logic [CDC_REG_AMOUNT:0]  m_ack_sync_reg;
 logic [CDC_REG_AMOUNT:0]  s_req_sync_reg;
 
-logic m_busy;
-logic m_busy_set;
-logic m_busy_clear;
+logic m_ack_wait;
+logic m_ack_wait_set;
+logic m_ack_wait_clear;
 
 logic s_req;
 logic s_req_set;
@@ -37,22 +37,40 @@ logic s_ack_clear;
 // Master clock domain
 //**************************************************
 
+// master request register toggling
 always_ff @( posedge clk_m_i, posedge rst_m_i )
   if( rst_m_i )
-    m_busy <= 1'b0;
+    m_req <= 1'b0;
   else
-    if( m_busy_set )
-      m_busy <= 1'b1;
-    else
-      if( m_busy_clear )
-        m_busy <= 1'b0;
+    if( m_req_toggle )
+      m_req <= ~m_req;
 
-assign m_busy_set   = m_req_i && ~m_busy;
-assign m_busy_clear = m_ack_sync_reg[CDC_REG_AMOUNT] && ~m_ack_sync_reg[CDC_REG_AMOUNT-1];
+// prevent toggling when request in process
+always_ff @( posedge clk_m_i, posedge rst_m_i )
+  if( rst_m_i )
+    m_ack_wait <= 1'b0;
+  else
+    if( m_ack_wait_set )
+      m_ack_wait <= 1'b1;
+    else
+      if( m_ack_wait_clear )
+        m_ack_wait <= 1'b0;
+
+assign m_req_toggle     = m_req_i && ~m_ack_wait;
+
+assign m_ack_wait_set   = m_req_toggle;
+assign m_ack_wait_clear = m_ack_stb;
 
 //**************************************************
 // Slave clock domain
 //**************************************************
+
+always_ff @( posedge clk_s_i, posedge rst_s_i )
+  if( rst_s_i )
+    s_ack <= 1'b0;
+  else
+    if( s_ack_toggle )
+      s_ack <= ~s_ack;
 
 always_ff @( posedge clk_s_i, posedge rst_s_i )
   if( rst_s_i )
@@ -64,54 +82,43 @@ always_ff @( posedge clk_s_i, posedge rst_s_i )
       if( s_req_clear )
         s_req <= 1'b0;
 
-assign s_req_set   = s_req_sync_reg[CDC_REG_AMOUNT-1] && ~s_req_sync_reg[CDC_REG_AMOUNT];
-assign s_req_clear = s_ack_i && s_req_o;
+assign s_ack_toggle = s_req && s_ack_i;
+
+assign s_req_set    = s_req_stb;
+assign s_req_clear  = s_ack_toggle;
 
 //********************************************
-// Handshake logic
+// Cross domain sync registers
 //********************************************
 
 // cross clock domain sync registers
-always_ff @( posedge clk_s_i )
-  s_req_sync_reg <= { s_req_sync_reg[CDC_REG_AMOUNT-1:0], m_req_flag };
-
-always_ff @( posedge clk_m_i )
-  m_ack_sync_reg <= { m_ack_sync_reg[CDC_REG_AMOUNT-1:0], s_ack_flag };
-
-// master request logic to cross clock domain
-always_ff @( posedge clk_m_i, posedge rst_m_i )
-  if( rst_m_i )
-    m_req_flag <= 1'b0;
-  else
-    if( m_req_set )
-      m_req_flag <= 1'b1;
-    else
-      if( m_req_clear )
-        m_req_flag <= 1'b0;
-
-assign m_req_set    = m_busy_set;
-assign m_req_clear  = m_ack_sync_reg[CDC_REG_AMOUNT-1] && ~m_ack_sync_reg[CDC_REG_AMOUNT];
-
-// slave acknowledge logic to cross clock domain
 always_ff @( posedge clk_s_i, posedge rst_s_i )
   if( rst_s_i )
-    s_ack_flag <= 1'b0;
+    s_req_sync_reg <= '0;
   else
-    if( s_ack_set )
-      s_ack_flag <= 1'b1;
-    else
-      if( s_ack_clear )
-        s_ack_flag <= 1'b0;
+    s_req_sync_reg <= { s_req_sync_reg[CDC_REG_AMOUNT-1:0], m_req_flag };
 
-assign s_ack_set    = s_req_set;
-assign s_ack_clear  = s_req_sync_reg[CDC_REG_AMOUNT] && ~ s_req_sync_reg[CDC_REG_AMOUNT-1];
+always_ff @( posedge clk_m_i, posedge rst_m_i )
+  if( rst_m_i )
+    m_ack_sync_reg <= '0;
+  else
+    m_ack_sync_reg <= { m_ack_sync_reg[CDC_REG_AMOUNT-1:0], s_ack_flag };
 
 //********************************************
 // Output assigns
 //********************************************
 
+assign s_req_posedge_stb = s_req_sync_reg[CDC_REG_AMOUNT]   && s_req_sync_reg[CDC_REG_AMOUNT-1];
+assign s_req_negedge_stb = s_req_sync_reg[CDC_REG_AMOUNT-1] && s_req_sync_reg[CDC_REG_AMOUNT];
+
+assign m_ack_posedge_stb = m_ack_sync_reg[CDC_REG_AMOUNT]   && m_ack_sync_reg[CDC_REG_AMOUNT-1];
+assign m_ack_negedge_stb = m_ack_sync_reg[CDC_REG_AMOUNT-1] && m_ack_sync_reg[CDC_REG_AMOUNT];
+
+assign s_req_stb = s_req_posedge_stb || s_req_negedge_stb;
+assign m_ack_stb = m_ack_posedge_stb || m_ack_negedge_stb;
+
 assign s_req_o = s_req;
-assign m_ack_o = m_req_clear;
+assign m_ack_o = m_ack_stb;
 
 endmodule : cdc_handshake
 

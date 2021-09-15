@@ -1,8 +1,6 @@
 vlib work
 
-vlog -sv amm_cdc.sv
-
-vlog -sv amm_cdc_tb.sv
+vlog -sv -f files
 
 vopt +acc amm_cdc_tb -o top_amm_cdc
 

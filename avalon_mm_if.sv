@@ -1,27 +1,29 @@
 interface avalon_mm_if #(
-  parameter D_W = 64,
-  parameter A_W = 12,
+  parameter DATA_W  = 64,
+  parameter ADDR_W  = 12,
   parameter BURST_W = 2
 )(
   input rst,
   input clk
 );
 
-logic [A_W-1:0] address;
+localparam DATA_B_W = DATA_W/8;
 
-logic [BURST_W-1:0] burstcount;
+logic [ADDR_W-1:0]    address;
 
-logic [D_W/8-1:0] byteenable;
+logic [BURST_W-1:0]   burstcount;
 
-logic           write;
-logic [D_W-1:0] writedata;
+logic [DATA_B_W-1:0]  byteenable;
 
-logic           read;
+logic                 write;
+logic [DATA_W-1:0]    writedata;
 
-logic           readdatavalid;
-logic [D_W-1:0] readdata;
+logic                 read;
 
-logic           waitrequest;
+logic                 readdatavalid;
+logic [DATA_W-1:0]    readdata;
+
+logic                 waitrequest;
 
 endinterface : avalon_mm_if
 
