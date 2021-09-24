@@ -33,7 +33,8 @@ logic slave_md_ack_valid, slave_sd_ack_valid;
 
 // instance CDC handshake for master write/read requests
 cdc_handshake #(
-  .CDC_REG_AMOUNT( CDC_W )
+  .CDC_REG_AMOUNT( CDC_W ),
+  .PASS_IMMEDIATELY( 0 )
 ) master_request_cdc_handshake (
   .rst_m_i( rst_m_i             ),
   .rst_s_i( rst_s_i             ),
@@ -53,7 +54,8 @@ assign master_sd_ack_valid = ~amm_if_s.waitrequest;
 
 // instances CDC handshake for slave read responses
 cdc_handshake #(
-  .CDC_REG_AMOUNT( CDC_W ) // +1? to balance delay because of 'readdata' latching
+  .CDC_REG_AMOUNT( CDC_W ), // +1? to balance delay because of 'readdata' latching
+  .PASS_IMMEDIATELY( 0 )
 ) slave_response_cdc_handshake (
   .rst_m_i( rst_s_i             ),
   .rst_s_i( rst_m_i             ),
@@ -92,6 +94,7 @@ always_ff @( posedge clk_s_i )
         amm_if_s.read       <= amm_if_m.read;
         amm_if_s.address    <= amm_if_m.address;
         amm_if_s.byteenable <= amm_if_m.byteenable;
+        amm_if_s.burstcount <= amm_if_m.burstcount;
         if( amm_if_m.write )
           amm_if_s.writedata  <= amm_if_m.writedata;
       end

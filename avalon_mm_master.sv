@@ -124,6 +124,11 @@ task automatic write_data(
               amm_if_v.writedata[7 + byte_num*8 -: 8] <= data.pop_front();
               amm_if_v.byteenable[byte_num]           <= 1'b1;
             end
+          else
+            begin
+              amm_if_v.writedata[7 + byte_num*8 -: 8] <= 8'h00;
+              amm_if_v.byteenable[byte_num]           <= 1'b0;
+            end
         else
           begin
             amm_if_v.writedata[7 + byte_num*8 -: 8] <= 8'h00;
@@ -193,47 +198,66 @@ task automatic read_data(
   burstcount = ( bytes_amount + byte_addr + 1 );
   // burst words required
   burstcount = burstcount / DATA_B + ( burstcount % DATA_B != 0 );
-  amm_if_v.burstcount <= burstcount;
+  //amm_if_v.burstcount <= burstcount;
   amm_if_v.read       <= 1'b1;
-  capture_data( addr, burstcount, bytes_amount, data );
-  do
-    @( posedge amm_if_v.clk );
-  while( amm_if_v.waitrequest );
-  amm_if_v.read     <= 1'b0;
-
+  fork
+    capture_data( addr, bytes_amount, data );
+    begin
+      do
+        @( posedge amm_if_v.clk );
+      while( amm_if_v.waitrequest );
+      amm_if_v.read     <= 1'b0;
+    end
+  join
   rd_protection_sema.put();
 
 endtask : read_data
 
 task automatic capture_data(
   input bit [ADDR_W-1:0]  addr,
-        int               words_amount,
         int               bytes_amount,
-  output bit [7:0]        data [$]
+  ref   bit [7:0]        data [$]
 );
   int captured_bytes_amount = 0;
-  int captured_words_amount = 0;
-  bit first_transaction = 1'b1;
+  //bit first_transaction = 1'b1;
 
   bit [DATA_B_W-1:0]    byte_addr = addr[DATA_B_W-1:0];
   bit [DATA_B-1:0][7:0] word_data;
 
   capture_protection_sema.get();
 
-  while( captured_words_amount < words_amount )
+  do
+    @( posedge amm_if_v.clk );
+  while( ~amm_if_v.readdatavalid );
+  word_data = amm_if_v.readdata;
+  for( int byte_num = 0; byte_num < DATA_B; byte_num++ )
+    if( byte_num >= byte_addr && captured_bytes_amount < bytes_amount )
+      begin
+        data.push_back( word_data[byte_num] );
+        captured_bytes_amount += 1;
+      end
+  /*
+  while( captured_bytes_amount < bytes_amount )
     begin
       do
         @( posedge amm_if_v.clk );
       while( ~amm_if_v.readdatavalid );
       word_data = amm_if_v.readdata;
       for( int byte_num = 0; byte_num < DATA_B; byte_num++ )
-        if( ( captured_bytes_amount <= bytes_amount ) || ( byte_addr >= byte_num ) )
-          begin
-            data.push_back( word_data[byte_num] );
-            captured_bytes_amount += 1;
-          end
-      captured_words_amount += 1;
+        if( first_transaction )
+          if( ( captured_bytes_amount <= bytes_amount ) && ( byte_addr >= byte_num ) )
+            begin
+              data.push_back( word_data[byte_num] );
+              captured_bytes_amount += 1;
+            end
+        else
+          if( captured_bytes_amount <= bytes_amount )
+            begin
+              data.push_back( word_data[byte_num] );
+              captured_bytes_amount += 1;
+            end
     end
+  */
 
   rd_transaction_in_process -= 1;
 

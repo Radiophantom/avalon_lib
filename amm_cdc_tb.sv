@@ -8,6 +8,8 @@ module amm_cdc_tb;
 
 parameter ADDR_W = 8;
 parameter DATA_W = 64;
+parameter DATA_B = DATA_W/8;
+parameter DATA_B_W = $clog2( DATA_B );
 
 amm_memory #(
   .ADDR_W     ( ADDR_W ),
@@ -101,6 +103,8 @@ initial
       begin
         bit [7:0] writedata_bytes [$];
         bit [7:0] readdata_bytes [$];
+        bit [7:0] readdata_bytes_1 [$];
+        bit [7:0] readdata_bytes_2 [$];
         bit [DATA_W-1:0] writedata;
         bit [DATA_W-1:0] readdata;
 
@@ -109,10 +113,17 @@ initial
           writedata_bytes.push_back( $urandom_range( 255, 0 ) );
 
         amm_master.write_data( address, writedata_bytes );
-        amm_master.read_data( address, address >> $clog2(DATA_W/8), readdata_bytes );
-
+        repeat( 10 )
+          @( posedge amm_slave_if.clk );
+        amm_master.read_data( address, DATA_B - address[DATA_B_W-1:0], readdata_bytes_1 );
+        if( address[DATA_B_W-1:0] != 0 )
+          amm_master.read_data( address+(DATA_B-address[DATA_B_W-1:0]), address[DATA_B_W-1:0], readdata_bytes_2 );
+        else
+          readdata_bytes_2 = {};
+        readdata_bytes = { readdata_bytes_1, readdata_bytes_2 };
         writedata = {<<8{writedata_bytes}};
-        readdata  = {<<8{readdata_bytes}};
+        readdata  = {<<8{readdata_bytes_1, readdata_bytes_2}};
+        writedata_bytes.delete();
 
         if( writedata != readdata )
           begin
@@ -120,6 +131,9 @@ initial
             $stop();
           end
       end
+
+    $display("Everything is OK");
+    $stop();
   end
 
 endmodule : amm_cdc_tb

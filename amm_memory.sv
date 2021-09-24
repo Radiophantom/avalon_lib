@@ -46,7 +46,7 @@ task automatic write_data();
   @( posedge amm_if_v.clk );
   for( int byte_num = 0; byte_num < DATA_B; byte_num++ )
     if( amm_if_v.byteenable[byte_num] )
-      mem[amm_if_v.address>>DATA_B_W][7 + byte_num*7 -: 8] = amm_if_v.writedata[7 + byte_num*7 -: 8];
+      mem[amm_if_v.address>>DATA_B_W][7 + byte_num*8 -: 8] = amm_if_v.writedata[7 + byte_num*8 -: 8];
   amm_if_v.waitrequest <= 1'b1;
 
 endtask : write_data

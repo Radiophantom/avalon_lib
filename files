@@ -1,4 +1,4 @@
-./cdc_handshake.sv
+./common_lib/cdc_handshake.sv
 ./amm_cdc.sv
 ./amm_memory.sv
 ./avalon_mm_master.sv
