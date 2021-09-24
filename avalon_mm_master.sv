@@ -1,5 +1,3 @@
-`include "avalon_mm_if.sv"
-
 class amm_master #(
   // address units "Bytes"="Symbols" or "Words"
   parameter WORD_ADDR_TYPE  = 1,
@@ -9,8 +7,8 @@ class amm_master #(
   parameter DATA_W          = 64,
 
   // Random transaction
-  parameter RND_WRITE       = 1,
-  parameter RND_READ        = 1,
+  parameter RND_WRITE       = 0,
+  parameter RND_READ        = 0,
 
   // Burst enable
   parameter BURST_EN        = 1,
@@ -37,6 +35,8 @@ virtual avalon_mm_if #(
 
 semaphore wr_protection_sema = new( 1 );
 semaphore rd_protection_sema = new( 1 );
+
+semaphore capture_protection_sema = new( 1 );
 
 int wr_transaction_in_process = 0;
 int rd_transaction_in_process = 0;
@@ -85,7 +85,7 @@ task automatic write_data(
     begin
       // write signal assign
       write = 1'b1;
-      if( RND_VALID )
+      if( RND_WRITE )
         write = $urandom_range( 1 );
       while( ~write )
         begin
@@ -135,7 +135,9 @@ task automatic write_data(
       amm_if_v.write <= 1'b1;
       // run watchdog
       if( WATCHDOG_EN )
-        watchdog( amm_if_v.waitrequest, 0 );
+        fork
+          watchdog( amm_if_v.waitrequest, 0 );
+        join_none
       // wait for write transaction acception
       do
         @( posedge amm_if_v.clk );
@@ -175,7 +177,7 @@ task automatic read_data(
 
   // read signal assign
   read = 1'b1;
-  if( RND_VALID )
+  if( RND_READ )
     read = $urandom_range( 1 );
   while( ~read )
     begin
@@ -240,7 +242,7 @@ task automatic capture_data(
 endtask : capture_data
 
 task automatic watchdog(
-  ref   bit signal,
+  ref   logic signal,
   input int signal_level = 0
 );
   int cur_ticks = 0;

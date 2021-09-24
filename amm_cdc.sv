@@ -55,11 +55,11 @@ assign master_sd_ack_valid = ~amm_if_s.waitrequest;
 cdc_handshake #(
   .CDC_REG_AMOUNT( CDC_W ) // +1? to balance delay because of 'readdata' latching
 ) slave_response_cdc_handshake (
-  .rst_m_i( rst_m_i             ),
-  .rst_s_i( rst_s_i             ),
+  .rst_m_i( rst_s_i             ),
+  .rst_s_i( rst_m_i             ),
 
-  .clk_m_i( clk_m_i             ),
-  .clk_s_i( clk_s_i             ),
+  .clk_m_i( clk_s_i             ),
+  .clk_s_i( clk_m_i             ),
 
   .m_req_i( slave_sd_req_valid  ),
   .m_ack_o( slave_sd_ack_valid  ),
@@ -75,22 +75,32 @@ assign slave_md_ack_valid = 1'b1;
 // Latch output signals
 //******************************************
 
+logic [DATA_W-1:0]  s_readdata;
+logic               s_write;
+logic               s_read;
+
 always_ff @( posedge clk_s_i )
   if( master_sd_req_valid )
-    begin
-      amm_if_s.write      <= amm_if_m.write;
-      amm_if_s.read       <= amm_if_m.read;
-      amm_if_s.address    <= amm_if_m.address;
-      amm_if_s.byteenable <= amm_if_m.byteenable;
-      if( amm_if_m.write )
-        amm_if_s.writedata  <= amm_if_m.writedata;
-    end
-  else
-    if( ~amm_if_s.waitrequest )
+    if( master_sd_ack_valid )
       begin
-        s_write <= 1'b0;
-        s_read  <= 1'b0;
+        amm_if_s.write <= 1'b0;
+        amm_if_s.read  <= 1'b0;
       end
+    else
+      begin
+        amm_if_s.write      <= amm_if_m.write;
+        amm_if_s.read       <= amm_if_m.read;
+        amm_if_s.address    <= amm_if_m.address;
+        amm_if_s.byteenable <= amm_if_m.byteenable;
+        if( amm_if_m.write )
+          amm_if_s.writedata  <= amm_if_m.writedata;
+      end
+    else
+      begin
+        amm_if_s.write <= 1'b0;
+        amm_if_s.read  <= 1'b0;
+      end
+
 
 always_ff @( posedge clk_s_i )
   if( amm_if_s.readdatavalid )
